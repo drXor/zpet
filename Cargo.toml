@@ -1,6 +1,7 @@
 [package]
-name = "zpet-rs"
-version = "1.0"
+name = "zpet"
+version = "1.0.0"
 authors = ["Miguel Young <mcyoung@mit.edu>"]
 
 [dependencies]
+tempfile = "2.1.6"
