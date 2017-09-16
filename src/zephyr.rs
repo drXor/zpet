@@ -283,41 +283,6 @@ impl Drop for Zephyr {
     }
 }
 
-/*
-val words = s.split(" |(?<=\n)")
-    val sb = new StringBuilder
-    var lineLength = 0
-    for(w <- words) {
-      if(w.endsWith("\n")) {
-        if(lineLength + w.length > width) {
-          sb ++= "\n"
-          sb ++= w
-        } else if(lineLength == 0) {
-          sb ++= w
-        } else {
-          sb ++= " "
-          sb ++= w
-        }
-        lineLength = 0
-      } else {
-        if(lineLength == 0) {
-          sb ++= w
-        } else if(lineLength + w.length > width) {
-          sb ++= "\n"
-          sb ++= w
-          lineLength = 0
-        } else {
-          sb ++= " "
-          sb ++= w
-          lineLength += 1
-        }
-        lineLength += w.length
-      }
-    }
-
-    sb.toString.trim.split('\n')
-*/
-
 fn wrap_lines(limit: usize, val: &str) -> Vec<String> {
     lazy_static! {
         static ref PATTERN: Regex = Regex::new("[ \0]").unwrap();
