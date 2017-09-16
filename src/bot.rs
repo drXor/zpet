@@ -7,7 +7,7 @@ use std::any::Any;
 use std::thread;
 use std::time::Duration;
 use std::collections::HashMap;
-use std::cell::{RefCell, Ref, RefMut};
+use std::cell::{RefCell};
 
 /// Represents a bot
 pub struct Bot {
@@ -27,6 +27,7 @@ impl Bot {
         name: &str,
         class: &str,
         instance: &str,
+        zsig_func: Box<Fn() -> String>,
         subs: Vec<Triplet>,
         commands: Vec<Command>,
         pre_command_handlers: Vec<Handler>,
@@ -37,6 +38,7 @@ impl Bot {
                 name: name.to_string(),
                 class: class.to_string(),
                 instance: instance.to_string(),
+                zsig_func,
                 extra: HashMap::new(),
                 zio: RefCell::new(Zephyr::new(subs).expect("failed to connect to Zephyr"))
             },
@@ -95,6 +97,7 @@ pub struct State {
     pub name: String,
     pub class: String,
     pub instance: String,
+    zsig_func: Box<Fn() -> String>,
     extra: HashMap<&'static str, Box<Any>>,
     zio: RefCell<Zephyr>,
 }
@@ -105,7 +108,11 @@ impl State {
         self.zio.borrow_mut().zwrite(&notice).expect("unable to send zephyr")
     }
 
-    pub fn reply_to(&self, notice: &Notice, zsig: &str, body: Vec<&str>) {
+    pub fn reply_to(&self, notice: &Notice, body: &str) {
+        self.reply_zsigned(notice, &(self.zsig_func)(), body)
+    }
+
+    pub fn reply_zsigned(&self, notice: &Notice, zsig: &str, body: &str) {
         let reply = notice.make_reply(
             &self.name,
             zsig,
@@ -147,10 +154,14 @@ pub mod builder {
     use zephyr::*;
     use command::*;
 
+    use rand;
+    use rand::Rng;
+
     pub struct Builder {
         name: String,
         class: String,
         instance: String,
+        zsig_func: Box<Fn() -> String>,
         subs: Vec<Triplet>,
         commands: Vec<Command>,
         pre_command_handlers: Vec<Handler>,
@@ -164,6 +175,7 @@ pub mod builder {
                 name: name.to_string(),
                 class: start.0.to_string(),
                 instance: start.1.to_string(),
+                zsig_func: Box::new(|| "".to_string()),
                 subs: vec![],
                 commands: vec![],
                 pre_command_handlers: vec![],
@@ -171,13 +183,37 @@ pub mod builder {
             }
         }
 
+        pub fn with_zsig(mut self, zsig: &str) -> Builder {
+            let owned = zsig.to_string();
+            self.zsig_func = Box::new(move || owned.clone());
+            self
+        }
+
+        pub fn with_zsigs(mut self, zsigs: Vec<&str>) -> Builder {
+            assert!(!zsigs.is_empty());
+            let owned = zsigs.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+            self.zsig_func = Box::new(move || rand::thread_rng().choose(&owned).unwrap().clone());
+            self
+        }
+
+        pub fn zsig_fn<F>(mut self, f: F) -> Builder
+            where F: Fn() -> String + 'static {
+            self.zsig_func = Box::new(f);
+            self
+        }
+
         pub fn sub_to_class(mut self, class: &str) -> Builder {
             self.subs.push(Triplet::of_class(class));
             self
         }
 
-        pub fn sub_to(mut self, triplet: Triplet) -> Builder {
-            self.subs.push(triplet);
+        pub fn sub_to_classes(mut self, classes: Vec<&str>) -> Builder {
+            self.subs.append(&mut classes.iter().map(|c| Triplet::of_class(c)).collect::<Vec<_>>());
+            self
+        }
+
+        pub fn sub_to(mut self, mut triplets: Vec<Triplet>) -> Builder {
+            self.subs.append(&mut triplets);
             self
         }
 
@@ -204,6 +240,7 @@ pub mod builder {
                 &self.name,
                 &self.class,
                 &self.instance,
+                self.zsig_func,
                 self.subs,
                 self.commands,
                 self.pre_command_handlers,

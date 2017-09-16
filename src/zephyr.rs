@@ -6,7 +6,11 @@ use std::io::{Read, Write, Result, BufReader};
 use std::process::*;
 use std::time::Duration;
 
+use std::mem;
+
 use tempfile::NamedTempFile;
+
+use regex::Regex;
 
 /// Enum representing a notice direction
 #[derive(Clone, Debug)]
@@ -44,7 +48,7 @@ impl Notice {
         instance: &str,
         sender:   &str,
         zsig:     &str,
-        body:     Vec<&str>,
+        body:     &str,
     ) -> Notice {
 
         Notice {
@@ -54,24 +58,14 @@ impl Notice {
             instance:  instance.to_string(),
             sender:    sender.to_string(),
             zsig:      zsig.to_string(),
-            body:      body.iter().map(|s| s.to_string()).collect(),
+            body:      wrap_lines(70, body),
 
             incoming_data: None,
         }
     }
 
-    pub fn make_reply(&self, sender: &str, zsig: &str, body: Vec<&str>) -> Notice {
-
-        Notice {
-            opcode: "AUTO".to_string(),
-            direction: Direction::Outgoing,
-            class: self.class.clone(),
-            instance: self.instance.clone(),
-            sender: sender.to_string(),
-            zsig: zsig.to_string(),
-            body: body.iter().map(|s| s.to_string()).collect(),
-            incoming_data: None,
-        }
+    pub fn make_reply(&self, sender: &str, zsig: &str, body: &str) -> Notice {
+        Notice::new_outgoing("AUTO", &self.class, &self.instance, sender, zsig, body)
     }
 
     pub fn triplet(&self) -> Triplet {
@@ -126,8 +120,8 @@ impl Display for Triplet {
 
 /// Struct wrapping an extrenal zwgc process
 pub struct Zephyr {
-    format_file: NamedTempFile,
-    sub_file: NamedTempFile,
+    format_file: Option<NamedTempFile>,
+    sub_file: Option<NamedTempFile>,
     child: Option<Child>,
 }
 
@@ -144,7 +138,7 @@ impl Zephyr {
             write!(sub_file, "{}", sub)?;
         }
 
-        let mut zio = Zephyr { format_file, sub_file, child: None };
+        let mut zio = Zephyr { format_file: Some(format_file), sub_file: Some(sub_file), child: None };
         zio.restart()?;
 
         // read the first message and discard it
@@ -160,9 +154,9 @@ impl Zephyr {
             .arg("-nofork")
             .arg("-ttymode")
             .arg("-f")
-            .arg(format!("{}", self.format_file.path().to_str().unwrap()))
+            .arg(format!("{}", self.format_file.as_ref().unwrap().path().to_str().unwrap()))
             .arg("-subfile")
-            .arg(format!("{}", self.sub_file.path().to_str().unwrap()))
+            .arg(format!("{}", self.sub_file.as_ref().unwrap().path().to_str().unwrap()))
             .stdout(Stdio::piped())
             .spawn()?;
 
@@ -276,10 +270,82 @@ impl Zephyr {
 
 impl Drop for Zephyr {
     fn drop(&mut self) {
-        self.kill();
-        //self.format_file.close();
-        //self.sub_file.close();
+        self.kill().expect("failed to destroy process");
+
+        let mut format_file = None;
+        let mut sub_file = None;
+
+        mem::swap(&mut self.format_file, &mut format_file);
+        mem::swap(&mut self.sub_file, &mut sub_file);
+
+        format_file.unwrap().close().expect("failed to destroy temp file");
+        sub_file.unwrap().close().expect("failed to destroy temp file");
     }
+}
+
+/*
+val words = s.split(" |(?<=\n)")
+    val sb = new StringBuilder
+    var lineLength = 0
+    for(w <- words) {
+      if(w.endsWith("\n")) {
+        if(lineLength + w.length > width) {
+          sb ++= "\n"
+          sb ++= w
+        } else if(lineLength == 0) {
+          sb ++= w
+        } else {
+          sb ++= " "
+          sb ++= w
+        }
+        lineLength = 0
+      } else {
+        if(lineLength == 0) {
+          sb ++= w
+        } else if(lineLength + w.length > width) {
+          sb ++= "\n"
+          sb ++= w
+          lineLength = 0
+        } else {
+          sb ++= " "
+          sb ++= w
+          lineLength += 1
+        }
+        lineLength += w.length
+      }
+    }
+
+    sb.toString.trim.split('\n')
+*/
+
+fn wrap_lines(limit: usize, val: &str) -> Vec<String> {
+    lazy_static! {
+        static ref PATTERN: Regex = Regex::new("[ \0]").unwrap();
+    }
+
+    let mut buf = String::new();
+    let mut line_len = 0;
+
+    for word in PATTERN.split(&val.replace("\n", "\0")) {
+        if line_len + word.len() > limit {
+            buf += "\n";
+            buf += word;
+            line_len = 0;
+        } else if line_len == 0 {
+            buf += word;
+        } else {
+            buf += " ";
+            buf += word;
+            line_len += 1;
+        }
+        if word.ends_with("\n") {
+            line_len = 0;
+        } else {
+            line_len += word.len();
+        }
+    }
+
+    buf.split("\n").map(|x| x.to_string()).collect::<Vec<_>>()
 }
 
 // ZWGC format file
