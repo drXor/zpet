@@ -73,6 +73,10 @@ impl Notice {
             incoming_data: None,
         }
     }
+
+    pub fn triplet(&self) -> Triplet {
+        Triplet::of_instance(&self.class, &self.instance)
+    }
 }
 
 /// Struct representing a Zephyr triplet

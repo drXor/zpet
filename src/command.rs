@@ -149,3 +149,19 @@ impl Command {
     }
 }
 
+pub struct Handler {
+    pub action: Box<Fn(&mut bot::State, &zephyr::Notice) -> bool>
+}
+
+impl Handler {
+
+    pub fn new<F>(action: F) -> Handler
+        where F: Fn(&mut bot::State, &zephyr::Notice) -> bool + 'static {
+        Handler{ action: Box::new(action) }
+    }
+
+    pub fn try_exec(&self, state: &mut bot::State, notice: &zephyr::Notice) -> bool {
+        (self.action)(state, notice)
+    }
+}
+
