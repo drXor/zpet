@@ -5,3 +5,5 @@ authors = ["Miguel Young <mcyoung@mit.edu>"]
 
 [dependencies]
 tempfile = "2.1.6"
+regex = "0.2"
+lazy_static = "0.2.8"
