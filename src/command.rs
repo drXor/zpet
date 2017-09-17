@@ -4,14 +4,21 @@ use regex::Regex;
 use bot;
 use zephyr;
 
+/// Scope of a command: Local will only respond
+/// to the current Triplet, but Everywhere does not have
+/// this restriction
 pub enum Scope {
-    Local, Everywhere, Secret,
+    Local, Everywhere,
 }
 
+/// The "shape" a command is invoked in
+/// patterns should contain named "self" and "cmd"
+/// groups, and numbered groups for arguments
 pub struct Shape {
     patterns: Vec<Regex>,
 }
 
+/// Represents the result of matching with a Shape
 pub struct CommandMatch<'a> {
     pub referent: &'a str,
     pub command: &'a str,
@@ -107,6 +114,8 @@ impl Shape {
     }
 }
 
+/// Represents a command, which may be
+/// executed may be executed against a notice
 pub struct Command {
     shape: Shape,
     scope: Scope,
@@ -149,6 +158,8 @@ impl Command {
     }
 }
 
+/// Represents a handler which does not need to extract
+/// a command from a string
 pub struct Handler {
     pub action: Box<Fn(&mut bot::State, &zephyr::Notice) -> bool>
 }

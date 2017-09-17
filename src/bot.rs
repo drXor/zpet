@@ -28,6 +28,7 @@ impl Bot {
         class: &str,
         instance: &str,
         zsig_func: Box<Fn() -> String>,
+        initial_data: HashMap<&'static str, Box<Any>>,
         subs: Vec<Triplet>,
         commands: Vec<Command>,
         pre_command_handlers: Vec<Handler>,
@@ -39,7 +40,7 @@ impl Bot {
                 class: class.to_string(),
                 instance: instance.to_string(),
                 zsig_func,
-                extra: HashMap::new(),
+                extra: initial_data,
                 zio: RefCell::new(Zephyr::new(subs).expect("failed to connect to Zephyr"))
             },
             commands,
@@ -92,7 +93,8 @@ impl Bot {
     }
 }
 
-/// represents the mutable state of a bot
+/// Mutable state of a bot. Used by commands and handlers
+/// to share state
 pub struct State {
     pub name: String,
     pub class: String,
@@ -157,11 +159,15 @@ pub mod builder {
     use rand;
     use rand::Rng;
 
+    use std::any::Any;
+    use std::collections::HashMap;
+
     pub struct Builder {
         name: String,
         class: String,
         instance: String,
         zsig_func: Box<Fn() -> String>,
+        initial_data: HashMap<&'static str, Box<Any>>,
         subs: Vec<Triplet>,
         commands: Vec<Command>,
         pre_command_handlers: Vec<Handler>,
@@ -176,6 +182,7 @@ pub mod builder {
                 class: start.0.to_string(),
                 instance: start.1.to_string(),
                 zsig_func: Box::new(|| "".to_string()),
+                initial_data: HashMap::new(),
                 subs: vec![],
                 commands: vec![],
                 pre_command_handlers: vec![],
@@ -235,12 +242,25 @@ pub mod builder {
             self
         }
 
+        pub fn set<T: 'static>(mut self, key: &'static str, val: T) -> Builder {
+            self.initial_data.insert(key, Box::new(val));
+            self
+        }
+
+        pub fn set_vec<T: 'static>(mut self, pairs: Vec<(&'static str, T)>) -> Builder {
+            for (k, v) in pairs.into_iter() {
+                self.initial_data.insert(k, Box::new(v));
+            }
+            self
+        }
+
         pub fn build(self) -> Bot {
             Bot::new(
                 &self.name,
                 &self.class,
                 &self.instance,
                 self.zsig_func,
+                self.initial_data,
                 self.subs,
                 self.commands,
                 self.pre_command_handlers,

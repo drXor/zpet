@@ -118,7 +118,8 @@ impl Display for Triplet {
     }
 }
 
-/// Struct wrapping an extrenal zwgc process
+/// Struct wrapping an extrenal zwgc process,
+/// and access to zwrite
 pub struct Zephyr {
     format_file: Option<NamedTempFile>,
     sub_file: Option<NamedTempFile>,
@@ -244,6 +245,7 @@ impl Zephyr {
         Ok(notice)
     }
 
+    // NB: self is &mut for future-proofing
     pub fn zwrite(&mut self, notice: &Notice) -> Result<()> {
 
         let mut body = String::new();
