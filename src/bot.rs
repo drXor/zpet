@@ -3,44 +3,45 @@
 use zephyr::*;
 use command::*;
 
-use std::any::Any;
+use std::mem;
 use std::thread;
 use std::time::Duration;
-use std::collections::HashMap;
 use std::cell::{RefCell};
 
 /// Represents a bot
-pub struct Bot {
-    pub state: State,
-    pub commands: Vec<Command>,
-    pub pre_command_handlers: Vec<Handler>,
-    pub post_command_handlers: Vec<Handler>,
+pub struct Bot<E = ()> {
+    pub state: State<E>,
+    pub commands: Vec<Command<E>>,
+    pub pre_command_handlers: Vec<Handler<E>>,
+    pub post_command_handlers: Vec<Handler<E>>,
 }
 
 impl Bot {
-
     pub fn build(name: &str, start: (&str, &str)) -> builder::Builder {
         builder::Builder::new(name, start)
     }
+}
+
+impl<E> Bot<E> {
 
     pub fn new(
         name: &str,
         class: &str,
         instance: &str,
         zsig_func: Box<Fn() -> String>,
-        initial_data: HashMap<&'static str, Box<Any>>,
+        extra: E,
         subs: Vec<Triplet>,
-        commands: Vec<Command>,
-        pre_command_handlers: Vec<Handler>,
-        post_command_handlers: Vec<Handler>,
-    ) -> Bot {
+        commands: Vec<Command<E>>,
+        pre_command_handlers: Vec<Handler<E>>,
+        post_command_handlers: Vec<Handler<E>>,
+    ) -> Bot<E> {
         Bot {
             state: State {
                 name: name.to_string(),
                 class: class.to_string(),
                 instance: instance.to_string(),
                 zsig_func,
-                extra: initial_data,
+                extra,
                 zio: RefCell::new(Zephyr::new(subs).expect("failed to connect to Zephyr"))
             },
             commands,
@@ -95,16 +96,16 @@ impl Bot {
 
 /// Mutable state of a bot. Used by commands and handlers
 /// to share state
-pub struct State {
+pub struct State<E> {
     pub name: String,
     pub class: String,
     pub instance: String,
     zsig_func: Box<Fn() -> String>,
-    extra: HashMap<&'static str, Box<Any>>,
+    extra: E,
     zio: RefCell<Zephyr>,
 }
 
-impl State {
+impl<E> State<E> {
 
     pub fn zwrite(&self, notice: &Notice) {
         self.zio.borrow_mut().zwrite(&notice).expect("unable to send zephyr")
@@ -123,144 +124,127 @@ impl State {
         self.zwrite(&reply);
     }
 
-    pub fn get_data<T: Any + 'static>(&self, key: &'static str) -> Option<&T> {
-        if let Some(x) = self.extra.get(key) {
-            if let Some(y) = x.downcast_ref::<T>() {
-                return Some(y)
-            }
-        }
-        None
-    }
-
-    pub fn check_data<T: Eq + 'static>(&self, key: &'static str, other: &T) -> bool {
-        self.get_data(key).map(|x: &T| *x == *other).unwrap_or(false)
-    }
-
-    pub fn insert_data<T: Any + Clone + 'static>(&mut self, key: &'static str, t: &T) -> Option<Box<Any>> {
-        self.extra.insert(key, Box::new(t.clone()))
-    }
-
-    pub fn remove_data(&mut self, key: &'static str) -> Option<Box<Any>> {
-        self.extra.remove(key)
-    }
-
     pub fn move_to(&mut self, to: Triplet) {
         self.class = to.class;
         self.instance = to.instance.unwrap_or("personal".to_string());
+    }
+
+    pub fn extra_ref(&self) -> &E {
+        &self.extra
+    }
+
+    pub fn extra_mut(&mut self) -> &mut E {
+        &mut self.extra
     }
 }
 
 pub mod builder {
 
     use super::*;
-    use zephyr::*;
-    use command::*;
 
     use rand;
     use rand::Rng;
 
-    use std::any::Any;
-    use std::collections::HashMap;
-
-    pub struct Builder {
+    pub struct Builder<E = ()> {
         name: String,
         class: String,
         instance: String,
         zsig_func: Box<Fn() -> String>,
-        initial_data: HashMap<&'static str, Box<Any>>,
+        extra: Option<Box<E>>, // internally an option, so we can null it later
         subs: Vec<Triplet>,
-        commands: Vec<Command>,
-        pre_command_handlers: Vec<Handler>,
-        post_command_handlers: Vec<Handler>,
+        commands: Vec<Command<E>>,
+        pre_command_handlers: Vec<Handler<E>>,
+        post_command_handlers: Vec<Handler<E>>,
     }
 
     impl Builder {
-
         pub fn new(name: &str, start: (&str, &str)) -> Builder {
             Builder {
                 name: name.to_string(),
                 class: start.0.to_string(),
                 instance: start.1.to_string(),
                 zsig_func: Box::new(|| "".to_string()),
-                initial_data: HashMap::new(),
+                extra: Some(Box::new(())),
                 subs: vec![],
                 commands: vec![],
                 pre_command_handlers: vec![],
                 post_command_handlers: vec![],
             }
         }
+    }
 
-        pub fn with_zsig(mut self, zsig: &str) -> Builder {
+    impl<E> Builder<E> {
+
+        pub fn with_zsig(mut self, zsig: &str) -> Builder<E> {
             let owned = zsig.to_string();
             self.zsig_func = Box::new(move || owned.clone());
             self
         }
 
-        pub fn with_zsigs(mut self, zsigs: Vec<&str>) -> Builder {
+        pub fn with_zsigs(mut self, zsigs: Vec<&str>) -> Builder<E> {
             assert!(!zsigs.is_empty());
             let owned = zsigs.iter().map(|s| s.to_string()).collect::<Vec<_>>();
             self.zsig_func = Box::new(move || rand::thread_rng().choose(&owned).unwrap().clone());
             self
         }
 
-        pub fn zsig_fn<F>(mut self, f: F) -> Builder
+        pub fn zsig_fn<F>(mut self, f: F) -> Builder<E>
             where F: Fn() -> String + 'static {
             self.zsig_func = Box::new(f);
             self
         }
 
-        pub fn sub_to_class(mut self, class: &str) -> Builder {
+        pub fn sub_to_class(mut self, class: &str) -> Builder<E> {
             self.subs.push(Triplet::of_class(class));
             self
         }
 
-        pub fn sub_to_classes(mut self, classes: Vec<&str>) -> Builder {
+        pub fn sub_to_classes(mut self, classes: Vec<&str>) -> Builder<E> {
             self.subs.append(&mut classes.iter().map(|c| Triplet::of_class(c)).collect::<Vec<_>>());
             self
         }
 
-        pub fn sub_to(mut self, mut triplets: Vec<Triplet>) -> Builder {
+        pub fn sub_to(mut self, mut triplets: Vec<Triplet>) -> Builder<E> {
             self.subs.append(&mut triplets);
             self
         }
 
-        pub fn command<F>(mut self, shape: Shape, scope: Scope, labels: Vec<&str>, action: F) -> Builder
-            where F: Fn(&mut State, &Notice, &CommandMatch) -> () + 'static {
+        pub fn command<F>(mut self, shape: Shape, scope: Scope, labels: Vec<&str>, action: F) -> Builder<E>
+            where F: Fn(&mut State<E>, &Notice, &CommandMatch) -> () + 'static {
             self.commands.push(Command::new(shape, scope, labels, action));
             self
         }
 
-        pub fn pre<F>(mut self, action: F) -> Builder
-            where F: Fn(&mut State, &Notice) -> bool + 'static {
+        pub fn pre<F>(mut self, action: F) -> Builder<E>
+            where F: Fn(&mut State<E>, &Notice) -> bool + 'static {
             self.pre_command_handlers.push(Handler::new(action));
             self
         }
 
-        pub fn post<F>(mut self, action: F) -> Builder
-            where F: Fn(&mut State, &Notice) -> bool + 'static {
+        pub fn post<F>(mut self, action: F) -> Builder<E>
+            where F: Fn(&mut State<E>, &Notice) -> bool + 'static {
             self.post_command_handlers.push(Handler::new(action));
             self
         }
 
-        pub fn set<T: 'static>(mut self, key: &'static str, val: T) -> Builder {
-            self.initial_data.insert(key, Box::new(val));
-            self
-        }
-
-        pub fn set_vec<T: 'static>(mut self, pairs: Vec<(&'static str, T)>) -> Builder {
-            for (k, v) in pairs.into_iter() {
-                self.initial_data.insert(k, Box::new(v));
+        pub fn with_extra<E2>(mut self, extra: E2) -> Builder<E2> {
+            let mut old_extra: Option<Box<E>> = None;
+            mem::swap(&mut old_extra, &mut self.extra);
+            drop(old_extra);
+            unsafe {
+                let mut new_builder: Builder<E2> = mem::transmute(self);
+                new_builder.extra = Some(Box::new(extra));
+                new_builder
             }
-            self
         }
 
-        pub fn build(self) -> Bot {
+        pub fn build(self) -> Bot<E> {
             Bot::new(
                 &self.name,
                 &self.class,
                 &self.instance,
                 self.zsig_func,
-                self.initial_data,
+                *self.extra.unwrap(),
                 self.subs,
                 self.commands,
                 self.pre_command_handlers,

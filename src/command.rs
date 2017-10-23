@@ -116,17 +116,17 @@ impl Shape {
 
 /// Represents a command, which may be
 /// executed may be executed against a notice
-pub struct Command {
+pub struct Command<E> {
     shape: Shape,
     scope: Scope,
     labels: Vec<String>,
-    action: Box<Fn(&mut bot::State, &zephyr::Notice, &CommandMatch) -> ()>
+    action: Box<Fn(&mut bot::State<E>, &zephyr::Notice, &CommandMatch) -> ()>
 }
 
-impl Command {
+impl<E> Command<E> {
 
-    pub fn new<F>(shape: Shape, scope: Scope, labels: Vec<&str>, action: F) -> Command
-        where F: Fn(&mut bot::State, &zephyr::Notice, &CommandMatch) -> () + 'static {
+    pub fn new<F>(shape: Shape, scope: Scope, labels: Vec<&str>, action: F) -> Command<E>
+        where F: Fn(&mut bot::State<E>, &zephyr::Notice, &CommandMatch) -> () + 'static {
 
         Command {
             shape,
@@ -137,7 +137,7 @@ impl Command {
     }
 
 
-    pub fn try_exec(&self, state: &mut bot::State, notice: &zephyr::Notice) -> bool {
+    pub fn try_exec(&self, state: &mut bot::State<E>, notice: &zephyr::Notice) -> bool {
         if let Some(cm) = self.shape.try_match(
             &state.name,
             &self.labels.iter().map(|x| x.as_ref()).collect::<Vec<_>>(),
@@ -160,18 +160,18 @@ impl Command {
 
 /// Represents a handler which does not need to extract
 /// a command from a string
-pub struct Handler {
-    pub action: Box<Fn(&mut bot::State, &zephyr::Notice) -> bool>
+pub struct Handler<E> {
+    pub action: Box<Fn(&mut bot::State<E>, &zephyr::Notice) -> bool>
 }
 
-impl Handler {
+impl<E> Handler<E> {
 
-    pub fn new<F>(action: F) -> Handler
-        where F: Fn(&mut bot::State, &zephyr::Notice) -> bool + 'static {
+    pub fn new<F>(action: F) -> Handler<E>
+        where F: Fn(&mut bot::State<E>, &zephyr::Notice) -> bool + 'static {
         Handler{ action: Box::new(action) }
     }
 
-    pub fn try_exec(&self, state: &mut bot::State, notice: &zephyr::Notice) -> bool {
+    pub fn try_exec(&self, state: &mut bot::State<E>, notice: &zephyr::Notice) -> bool {
         (self.action)(state, notice)
     }
 }

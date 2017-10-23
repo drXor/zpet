@@ -293,7 +293,7 @@ fn wrap_lines(limit: usize, val: &str) -> Vec<String> {
     let mut buf = String::new();
     let mut line_len = 0;
 
-    for word in PATTERN.split(&val.replace("\n", "\0")) {
+    for word in PATTERN.split(&val.replace("\n", "\n\0")) {
         if line_len + word.len() > limit {
             buf += "\n";
             buf += word;
