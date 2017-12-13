@@ -50,6 +50,18 @@ impl Notice {
         zsig:     &str,
         body:     &str,
     ) -> Notice {
+        Notice::new_outgoing_with_wrap(opcode, class, instance, sender, zsig, body, 70)
+    }
+
+    pub fn new_outgoing_with_wrap(
+        opcode:   &str,
+        class:    &str,
+        instance: &str,
+        sender:   &str,
+        zsig:     &str,
+        body:     &str,
+        wrap:     usize
+    ) -> Notice {
 
         Notice {
             opcode:    opcode.to_string(),
@@ -58,23 +70,36 @@ impl Notice {
             instance:  instance.to_string(),
             sender:    sender.to_string(),
             zsig:      zsig.to_string(),
-            body:      wrap_lines(70, body),
+            body:      wrap_lines(wrap, body),
 
             incoming_data: None,
         }
     }
 
     pub fn make_reply(&self, sender: &str, zsig: &str, body: &str) -> Notice {
-        Notice::new_outgoing("AUTO", &self.class, &self.instance, sender, zsig, body)
+        self.triplet().make_reply(sender, zsig, body)
     }
 
     pub fn triplet(&self) -> Triplet {
         Triplet::of_instance(&self.class, &self.instance)
     }
+
+    pub fn was_sent_to(&self, triplet: &Triplet) -> bool {
+        triplet.class == self.class &&
+            (triplet.instance.is_none() ||
+                triplet.instance.as_ref().unwrap() == &self.instance)
+    }
+
+    pub fn is_auth(&self) -> bool {
+        match self.incoming_data {
+            Some(ref data) => data.is_auth,
+            None => false,
+        }
+    }
 }
 
 /// Struct representing a Zephyr triplet
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Triplet {
     pub class: String,
     pub instance: Option<String>,
@@ -106,6 +131,12 @@ impl Triplet {
             recipient: Some(recipient.to_string()),
         }
     }
+
+    pub fn make_reply(&self, sender: &str, zsig: &str, body: &str) -> Notice {
+        Notice::new_outgoing("AUTO", &self.class,
+                             &self.instance.as_ref().unwrap_or(&"personal".to_string()),
+                             sender, zsig, body)
+    }
 }
 
 impl Display for Triplet {
@@ -121,6 +152,7 @@ impl Display for Triplet {
 /// Struct wrapping an extrenal zwgc process,
 /// and access to zwrite
 pub struct Zephyr {
+    subs: Vec<Triplet>,
     format_file: Option<NamedTempFile>,
     sub_file: Option<NamedTempFile>,
     child: Option<Child>,
@@ -136,16 +168,22 @@ impl Zephyr {
         write!(format_file, "{}", FORMAT)?;
 
         for sub in subs.iter() {
-            write!(sub_file, "{}", sub)?;
+            write!(sub_file, "{}\n", sub)?;
         }
 
-        let mut zio = Zephyr { format_file: Some(format_file), sub_file: Some(sub_file), child: None };
+        let mut zio = Zephyr { subs, format_file: Some(format_file), sub_file: Some(sub_file), child: None };
         zio.restart()?;
 
         // read the first message and discard it
         zio.read()?;
 
+        eprintln!("connected to zephyr!");
+
         Ok(zio)
+    }
+
+    pub fn subs(&self) -> &Vec<Triplet> {
+        &self.subs
     }
 
     pub fn restart(&mut self) -> Result<()> {

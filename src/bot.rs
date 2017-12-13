@@ -6,7 +6,7 @@ use command::*;
 use std::mem;
 use std::thread;
 use std::time::Duration;
-use std::cell::{RefCell};
+use std::cell::{Ref, RefCell};
 
 /// Represents a bot
 pub struct Bot<E = ()> {
@@ -107,21 +107,45 @@ pub struct State<E> {
 
 impl<E> State<E> {
 
+    pub fn subs(&self) -> Ref<Vec<Triplet>> {
+        Ref::map(self.zio.borrow(), |x| x.subs())
+    }
+
     pub fn zwrite(&self, notice: &Notice) {
         self.zio.borrow_mut().zwrite(&notice).expect("unable to send zephyr")
     }
 
-    pub fn reply_to(&self, notice: &Notice, body: &str) {
-        self.reply_zsigned(notice, &(self.zsig_func)(), body)
+    pub fn reply_here(&self, body: &str) {
+        self.reply_at(&self.location(), body)
     }
 
-    pub fn reply_zsigned(&self, notice: &Notice, zsig: &str, body: &str) {
-        let reply = notice.make_reply(
+    pub fn reply_here_zsigned(&self, zsig: &str, body: &str) {
+        self.reply_at_zsigned(&self.location(), zsig, body)
+    }
+
+    pub fn reply_to(&self, notice: &Notice, body: &str) {
+        self.reply_at(&notice.triplet(), body)
+    }
+
+    pub fn reply_to_zsigned(&self, notice: &Notice, zsig: &str, body: &str) {
+        self.reply_at_zsigned(&notice.triplet(), zsig, body)
+    }
+
+    pub fn reply_at(&self, triplet: &Triplet, body: &str) {
+        self.reply_at_zsigned(triplet, &(self.zsig_func)(), body)
+    }
+
+    pub fn reply_at_zsigned(&self, triplet: &Triplet, zsig: &str, body: &str) {
+        let reply = triplet.make_reply(
             &self.name,
             zsig,
             body
         );
         self.zwrite(&reply);
+    }
+
+    pub fn location(&self) -> Triplet {
+        Triplet::of_instance(&self.class, &self.instance)
     }
 
     pub fn move_to(&mut self, to: Triplet) {
@@ -150,7 +174,7 @@ pub mod builder {
         class: String,
         instance: String,
         zsig_func: Box<Fn() -> String>,
-        extra: Option<Box<E>>, // internally an option, so we can null it later
+        extra: Box<E>,
         subs: Vec<Triplet>,
         commands: Vec<Command<E>>,
         pre_command_handlers: Vec<Handler<E>>,
@@ -164,7 +188,7 @@ pub mod builder {
                 class: start.0.to_string(),
                 instance: start.1.to_string(),
                 zsig_func: Box::new(|| "".to_string()),
-                extra: Some(Box::new(())),
+                extra: Box::new(()),
                 subs: vec![],
                 commands: vec![],
                 pre_command_handlers: vec![],
@@ -228,12 +252,11 @@ pub mod builder {
         }
 
         pub fn with_extra<E2>(mut self, extra: E2) -> Builder<E2> {
-            let mut old_extra: Option<Box<E>> = None;
-            mem::swap(&mut old_extra, &mut self.extra);
-            drop(old_extra);
+            let mut extra_box = Box::new(extra);
             unsafe {
                 let mut new_builder: Builder<E2> = mem::transmute(self);
-                new_builder.extra = Some(Box::new(extra));
+                mem::swap(&mut new_builder.extra, &mut extra_box);
+                drop(mem::transmute::<Box<E2>, Box<E>>(extra_box));
                 new_builder
             }
         }
@@ -244,7 +267,7 @@ pub mod builder {
                 &self.class,
                 &self.instance,
                 self.zsig_func,
-                *self.extra.unwrap(),
+                *self.extra,
                 self.subs,
                 self.commands,
                 self.pre_command_handlers,

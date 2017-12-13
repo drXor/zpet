@@ -6,9 +6,12 @@ use zephyr;
 
 /// Scope of a command: Local will only respond
 /// to the current Triplet, but Everywhere does not have
-/// this restriction
+/// this restriction. At(triplet) specifies the command
+/// must be sent to the given triplet
 pub enum Scope {
-    Local, Everywhere,
+    Local,
+    Everywhere,
+    At(zephyr::Triplet),
 }
 
 /// The "shape" a command is invoked in
@@ -72,8 +75,8 @@ impl Shape {
 
     pub fn order() -> Shape {
         shape![
-            "^(?P<self>[\\w]+) *, *(?P<cmd>[\\w]+) *[.!]?$", // topy, sit!
-            "^(?P<cmd>[\\w]+) *, *(?P<self>[\\w]+) *[.!]?$", // sit, topy!
+            "^(?P<self>[\\w ]+?) *, *(?P<cmd>[\\w ]+?) *[.!]?$", // topy, sit!
+            "^(?P<cmd>[\\w ]+?) *, *(?P<self>[\\w ]+?) *[.!]?$", // sit, topy!
         ]
     }
 
@@ -143,10 +146,15 @@ impl<E> Command<E> {
             &self.labels.iter().map(|x| x.as_ref()).collect::<Vec<_>>(),
             &notice.body.join("\n").trim()) {
 
+            if !state.subs().iter().any(|t| notice.was_sent_to(t)) {
+                return false
+            }
+
             match self.scope {
                 Scope::Local => if !(
                     state.class == notice.class &&
                         state.instance == notice.instance) {return false},
+                Scope::At(ref triplet) => if !notice.was_sent_to(triplet) {return false},
                 _ => {},
             }
 
@@ -172,6 +180,11 @@ impl<E> Handler<E> {
     }
 
     pub fn try_exec(&self, state: &mut bot::State<E>, notice: &zephyr::Notice) -> bool {
+
+        if !state.subs().iter().any(|t| notice.was_sent_to(t)) {
+            return false
+        }
+
         (self.action)(state, notice)
     }
 }
